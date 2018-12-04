@@ -225,7 +225,7 @@ int i=0;
 
 
           cout << "r_tl" <<bbTracker_.bbox_State_vect[i].r_tl.p_GR << endl;
-          cout << "imu state " << imu_state.p_I_G << "and init is "<< init_imu_state_.p_I_G << endl;
+          cout << "imu state " << imu_state.p_I_G << endl;
 
 //            int lines_nb = 8;
 

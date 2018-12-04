@@ -194,11 +194,11 @@ void bbTracker_t::init( msckf_mono::Vector3<float >curr_pos_p,
 void bbTracker_t::update_pose( msckf_mono::imuState<float> imu_state)
 {
 
-     curr_imu_state_ = imu_state ;
+    curr_imu_state_ = imu_state ;
     frame_count++;
     if (frame_count > max_age){
         bbox_State_vect.clear();
-        bb_state_.img_bboxes.list.clear();
+        //bb_state_.img_bboxes.list.clear();
         std::cout << "drop the last detection" << endl;
     } else {
         std::cout << "the predicted bbox is " << frame_count <<"frame year old" << endl;
