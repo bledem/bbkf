@@ -244,6 +244,8 @@ void TrackHandler::integrate_gyro() {
 }
 
 void TrackHandler::predict_features(){
+
+    //put prev in cur
   std::copy(prev_feature_ids_.begin(),
       prev_feature_ids_.end(),
       std::back_inserter(cur_feature_ids_));
@@ -339,6 +341,7 @@ void TrackHandler::tracked_features(OutFeatureVector& features, IdVector& featur
 
   visualizer_.add_current_features(cur_features_, cur_feature_ids_);
 
+  //clear the argument in order to output them
   features.clear();
   feature_ids.clear();
   if(cur_features_.size()>0){
@@ -393,6 +396,7 @@ void TrackHandler::tracked_features(OutFeatureVector& features, IdVector& featur
   }
 }
 
+//add in features and featre id argument the FAST detector found features
 void TrackHandler::new_features(OutFeatureVector& features, IdVector& feature_ids) {
   // flag all grid positions that already have a feature in it
   for(const auto& f: cur_features_){
@@ -403,6 +407,7 @@ void TrackHandler::new_features(OutFeatureVector& features, IdVector& feature_id
   //          << " new features" << std::endl;
 
   // generate ids for the new features
+  //each new feature has an incresing id
   new_feature_ids_.reserve(feature_ids.size()+new_features_.size());
   next_feature_id_++;
   for(int i=0; i<new_features_.size(); i++){
@@ -410,6 +415,7 @@ void TrackHandler::new_features(OutFeatureVector& features, IdVector& feature_id
     next_feature_id_++;
   }
 
+  //all the features until now
   visualizer_.add_new_features(new_features_, new_feature_ids_);
 
   features.clear();
@@ -441,6 +447,10 @@ void TrackHandler::undistortPoints(Point2fVector& in, Point2fVector& out){
 void TrackHandler::set_ransac_threshold(double rt){
   ransac_threshold_ = rt;
 }
+
+
+
+
 
 Eigen::Array<bool, 1, Eigen::Dynamic>
 TrackHandler::twoPointRansac(const msckf_mono::Matrix3<float>& dR,
@@ -545,6 +555,9 @@ TrackHandler::twoPointRansac(const msckf_mono::Matrix3<float>& dR,
   return best_inliers;
 }
 
+
+
+
 void TrackHandler::clear_tracks()
 {
   // clear all stateful pieces
@@ -552,6 +565,9 @@ void TrackHandler::clear_tracks()
   prev_features_.clear();
   prev_feature_ids_.clear();
 }
+
+
+
 
 cv::Mat TrackHandler::get_track_image()
 {
@@ -649,7 +665,7 @@ cv::Mat TrackVisualizer::draw_tracks(cv::Mat image)
     {
       if(first){
         first = false;
-        cv::circle(outImage, *it, 4, color, 2);
+        cv::circle(outImage, *it, 10, color, 2);
       }else{
         cv::line(outImage, *it, *prev, color, 1);
       }

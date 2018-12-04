@@ -23,6 +23,7 @@ namespace msckf_mono
                                &RosInterface::imageCallback, this);
     marker_pub = nh.advertise<visualization_msgs::Marker>("lines", 200);
     img_marker_pub = nh.advertise<visualization_msgs::Marker>("img_marker", 200);
+     ros::Publisher map_pub = nh.advertise<sensor_msgs::PointCloud2>("map", 100);
 
 
 //bb_sub_ = nh_.subscribe("darknet_ros/boundingboxes", 70, &RosInterface::boundingboxesCallback, this);
@@ -111,28 +112,51 @@ namespace msckf_mono
 
     for(auto& reading : imu_since_prev_img){
       msckf_.propagate(reading);
+      if (bbTracker_.bbox_State_vect.size()>0){
+      msckf_.update_bboxes(bbTracker_.bbox_State_vect,reading);
+      //cout << "out propagation msckf r_tl" << bbTracker_.bbox_State_vect[0].r_tl.p_GR << endl;
+}
+
 
       Vector3<float> gyro_measurement = R_imu_cam_ * (reading.omega - init_imu_state_.b_g);
       track_handler_->add_gyro_reading(gyro_measurement);
     }
 
+    //Set up all the parameter and cur become prev
     track_handler_->set_current_image( cv_ptr->image, cur_image_time );
 
     std::vector<Vector2<float>,
       Eigen::aligned_allocator<Vector2<float>>> cur_features;
     corner_detector::IdVector cur_ids;
-    track_handler_->tracked_features(cur_features, cur_ids);
 
+    //take the current new imag optical flow predicted feature and put it in cur_feature and match then with the previous features
+    //they are Optical flow/ gyro/ RANSAC checked
+    track_handler_->tracked_features(cur_features, cur_ids);
+//    for (auto id : cur_ids){
+//    std::cout << "cur_id" << id << std::endl;
+//}
     std::vector<Vector2<float>,
       Eigen::aligned_allocator<Vector2<float>>> new_features;
     corner_detector::IdVector new_ids;
+    //detect the feature with the FAST detector and put it in new features
     track_handler_->new_features(new_features, new_ids);
-
+//    for (auto id : new_ids){
+//    std::cout << "new_ids" << id << std::endl;
+//}
+    //
     msckf_.augmentState(state_k_, (float)cur_image_time);
+
+    //Updates the positions of tracked features (delete, keep, wait,..) at the current timestamp. delete all feature_track_to_residu
     msckf_.update(cur_features, cur_ids);
+
+    //we add to current_features_ the FAST detected feature
     msckf_.addFeatures(new_features, new_ids);
+
+    //
     msckf_.marginalize();
     // msckf_.pruneRedundantStates();
+
+    //add a comparator of
     msckf_.pruneEmptyStates();
 
     //delete useless/ old/ meaningless ray
@@ -285,7 +309,22 @@ int i=0;
 //line_list_img.points.push_back(ray_img_br);
 //img_marker_pub.publish(line_list_img);
 //line_list_img.points.clear();
+if(map_pub.getNumSubscribers()>0){
+           std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> map =
+             msckf_.getMap();
+           pcl::PointCloud<pcl::PointXYZ>::Ptr pointcloud(new pcl::PointCloud<pcl::PointXYZ>());
+           pointcloud->header.frame_id = "map";
+           pointcloud->height = 1;
+           for (auto& point:map)
+           {
+             pointcloud->points.push_back(pcl::PointXYZ(point(0),
+                   point(1),
+                   point(2)));
+           }
 
+           pointcloud->width = pointcloud->points.size();
+           map_pub.publish(pointcloud);
+}
 
   }
 

@@ -87,6 +87,7 @@ namespace msckf_mono
       ros::Publisher marker_pub;
       ros::Publisher img_marker_pub;
          ros::Publisher imu_pub;
+          ros::Publisher map_pub ;
       visualization_msgs::Marker line_list, line_list_img;
 
       std::vector<imgBboxes<float>> img_bboxes_states_;

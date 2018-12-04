@@ -44,6 +44,10 @@ namespace msckf_mono {
       size_t last_feature_id_;
 
       imuState<_S> imu_state_;
+
+      //Added
+      std::vector<bboxState<_S>> bbox_states_;
+
       std::vector<camState<_S>> cam_states_;
 
       std::vector<camState<_S>> pruned_states_;
@@ -103,6 +107,7 @@ namespace msckf_mono {
         calcG(imu_state_);
 
         imuState<_S> imu_state_prop = propogateImuStateRK(imu_state_, measurement_);
+       std::vector<bboxState<_S>> bboxes_state_prop = propogateBboxStateRK(imu_state_, measurement_);
 
         // F * dt
         F_ *= measurement_.dT;
@@ -140,9 +145,56 @@ namespace msckf_mono {
         imu_state_.v_I_G_null = imu_state_.v_I_G;
         imu_state_.p_I_G_null = imu_state_.p_I_G;
 
+        bbox_states_ = bboxes_state_prop;
+
         imu_covar_ = (imu_covar_prop + imu_covar_prop.transpose()) / 2.0;
         imu_cam_covar_ = Phi_ * imu_cam_covar_;
       }
+
+
+     void update_bboxes(std::vector<msckf_mono::bboxState<float>> &bbox_State_vect, imuReading<_S> &measurement_){
+        std::vector<msckf_mono::bboxState<float>> bbox_State_vect_updated;
+        float min_distance[4]; //tl, tr, bl, br
+        float dist;
+
+        //for all the detected boxes
+         for (auto bboxe_state : bbox_State_vect) {
+
+                 msckf_mono::Vector2<float> bbox_corner[4];
+                 msckf_mono::Vector2<float>  tl, tr, bl,br, observation;
+                 tl << bboxe_state.prev_detection.xmin, bboxe_state.prev_detection.ymin;
+                 tr << bboxe_state.prev_detection.xmax, bboxe_state.prev_detection.ymin;
+                 bl << bboxe_state.prev_detection.xmin, bboxe_state.prev_detection.ymax;
+                 br << bboxe_state.prev_detection.xmax, bboxe_state.prev_detection.ymax;
+                 bbox_corner[0]=tl;
+                 bbox_corner[1]=tr;
+                 bbox_corner[2]=bl;
+                 bbox_corner[3]=br;
+
+                 //for each corner
+                 if (feature_tracks_to_residualize_.size()>0){
+                 for(int i=0; i<4; i++){
+                     //init the min distance
+                     min_distance[i] = (bbox_corner[i]-feature_tracks_to_residualize_[0].observations[0]).norm();
+                     for (auto track = feature_tracks_to_residualize_.begin();
+                          track != feature_tracks_to_residualize_.end(); track++)
+                     {
+                         dist = (bbox_corner[i]-track->observations[track->observations.size()]).norm();
+                         if (dist< min_distance[i]){
+                             min_distance[i]= dist;
+                         }
+
+                 }
+//
+                 std::cout <<"min_distance " << i << " is " << min_distance[i] << std::endl;
+             }
+
+
+     }
+
+         }
+     }
+
 
       // Generates a new camera state and adds it to the full state and covariance.
       void augmentState(const int& state_id, const _S& time) {
@@ -211,7 +263,9 @@ namespace msckf_mono {
         VectorX<_S> cov_diag = imu_covar_.diagonal();
       }
 
-      // Updates the positions of tracked features at the current timestamp.
+
+
+      // Updates the positions of tracked features at the current timestamp. Using
       void update(const std::vector<Vector2<_S>, Eigen::aligned_allocator<Vector2<_S>>> &measurements,
                   const std::vector<size_t> &feature_ids) {
 
@@ -221,7 +275,7 @@ namespace msckf_mono {
         int id_iter = 0;
         // Loop through all features being tracked
         for (auto feature_id : tracked_feature_ids_) {
-          // Check if old feature is seen in current measurements
+          // Check if old feature is seen in current measurements (if the feature id of the measured point is in the old tracked feature id list)
           auto input_feature_ids_iter =
             find(feature_ids.begin(), feature_ids.end(), feature_id);
           bool is_valid = (input_feature_ids_iter != feature_ids.end());
@@ -308,10 +362,11 @@ namespace msckf_mono {
         // TODO: revisit this assumption if necessary
         using camStateIter = typename std::vector<camState<_S>>::iterator;
 
+          //for all new features
         for (size_t i = 0; i < features.size(); i++) {
           size_t id = feature_ids[i];
-          if (std::find(tracked_feature_ids_.begin(), tracked_feature_ids_.end(),
-                        id) == tracked_feature_ids_.end()) {
+          //if it does not exist already
+          if (std::find(tracked_feature_ids_.begin(), tracked_feature_ids_.end(), id) == tracked_feature_ids_.end()) {
             // New feature
             featureTrack<_S> track;
             track.feature_id = feature_ids[i];
@@ -349,6 +404,7 @@ namespace msckf_mono {
           std::vector<Vector3<_S>, Eigen::aligned_allocator<Vector3<_S>>> p_f_G_vec;
           int total_nObs = 0;
 
+          //for every validate track to residualize
           for (auto track = feature_tracks_to_residualize_.begin();
                track != feature_tracks_to_residualize_.end(); track++) {
             if (num_feature_tracks_residualized_ > 3 &&
@@ -374,6 +430,7 @@ namespace msckf_mono {
             p_f_G_vec.push_back(p_f_G);
             int nObs = track->observations.size();
 
+            //the projection of this p_f_G 3D world point in first cam state
             Vector3<_S> p_f_C1 = (track->cam_states[0].q_CG.toRotationMatrix()) *
               (p_f_G - track->cam_states[0].p_C_G);
 
@@ -448,6 +505,8 @@ namespace msckf_mono {
         }
       }
 
+
+
       // Removes camera states that are not considered 'keyframes' (too close in distance or
       // angle to their neighboring camera states), and marginalizes their observations.
       void pruneRedundantStates() {
@@ -508,6 +567,7 @@ namespace msckf_mono {
               continue;
             } else {
               Vector3<_S> p_f_G;
+              //if success we go directly to give the alue to the feature, else we enter the loop
               if (!initializePosition(feature_associated_cam_states,
                                       feature.observations, p_f_G)) {
                 for (const auto &cam_id : involved_cam_state_ids) {
@@ -681,6 +741,8 @@ namespace msckf_mono {
         }
       }
 
+
+
       // Removes camera states that no longer contain any active observations.
       void pruneEmptyStates() {
         int max_states = msckf_params_.max_cam_states;
@@ -827,6 +889,12 @@ namespace msckf_mono {
         return camera_;
       }
 
+      inline std::vector<featureTrackToResidualize<_S>> getTracks()
+      {
+        return feature_tracks_to_residualize_;
+      }
+
+
       inline camState<_S> getCamState(size_t i)
       {
         return cam_states_[i];
@@ -914,6 +982,8 @@ namespace msckf_mono {
 
         for (int c_i = 0; c_i < camStateIndices.size(); c_i++) {
           size_t index = camStateIndices[c_i];
+
+          //feature point from world to camera frame
           Vector3<_S> p_f_C = cam_states_[index].q_CG.toRotationMatrix() *
             (p_f_G - cam_states_[index].p_C_G);
 
@@ -967,6 +1037,8 @@ namespace msckf_mono {
 
         int iter = 0;
         for (auto state_i : camStates) {
+
+            //from world to pixel
           Vector3<_S> p_f_C = state_i.q_CG.toRotationMatrix() * (p_f_G - state_i.p_C_G);
           Vector2<_S> zhat_i_j = p_f_C.template head<2>() / p_f_C(2);
 
@@ -1144,6 +1216,7 @@ namespace msckf_mono {
         return;
       }
 
+
       bool initializePosition(const std::vector<camState<_S>> &camStates,
                               const std::vector<Vector2<_S>, Eigen::aligned_allocator<Vector2<_S>>> &measurements,
                               Vector3<_S> &p_f_G) {
@@ -1154,9 +1227,10 @@ namespace msckf_mono {
         for (auto &cam : camStates) {
           // This camera pose will take a std::vector from this camera frame
           // to the world frame.
+          //transformation of the cam in World frame of ref
           Isometry3<_S> cam0_pose;
-          cam0_pose.linear() = cam.q_CG.toRotationMatrix().transpose();
-          cam0_pose.translation() = cam.p_C_G;
+          cam0_pose.linear() = cam.q_CG.toRotationMatrix().transpose();  //from cam to world G
+          cam0_pose.translation() = cam.p_C_G;  //C in G World,   I think
 
           cam_poses.push_back(cam0_pose);
         }
@@ -1169,6 +1243,8 @@ namespace msckf_mono {
 
         // Generate initial guess
         Vector3<_S> initial_position(0.0, 0.0, 0.0);
+
+        //Take the last pose and the first and last measurement to compute the initial first position of the feature)
         generateInitialGuess(cam_poses[cam_poses.size() - 1], measurements[0],
                              measurements[measurements.size() - 1], initial_position);
         Vector3<_S> solution(initial_position(0) / initial_position(2),
@@ -1465,6 +1541,60 @@ namespace msckf_mono {
         imuStateProp.p_I_G = imu_state_k.p_I_G + imu_state_k.v_I_G * dT;
         return imuStateProp;
       }
+
+      std::vector<bboxState<_S>> propogateBboxStateRK(const imuState<_S> &imu_state_k,
+                                       const imuReading<_S> &measurement_k) {
+        imuState<_S> imuStateProp = imu_state_k;
+        std::vector<bboxState<_S>> predicted_bboxes;
+
+        const _S dT(measurement_k.dT);
+
+        Vector3<_S> omega_vec = measurement_k.omega - imu_state_k.b_g;
+        Matrix4<_S> omega_psi = 0.5 * omegaMat(omega_vec);
+
+        // Note: MSCKF Matlab code assumes quaternion form: -x,-y,-z,w
+        //     Eigen quaternion is of form: w,x,y,z
+        // Following computation accounts for this change
+
+        Vector4<_S> y0, k0, k1, k2, k3, k4, k5, y_t;
+        y0(0) = -imu_state_k.q_IG.x();
+        y0(1) = -imu_state_k.q_IG.y();
+        y0(2) = -imu_state_k.q_IG.z();
+        y0(3) = imu_state_k.q_IG.w();
+
+        k0 = omega_psi * (y0);
+        k1 = omega_psi * (y0 + (k0 / 4.) * dT);
+        k2 = omega_psi * (y0 + (k0 / 8. + k1 / 8.) * dT);
+        k3 = omega_psi * (y0 + (-k1 / 2. + k2) * dT);
+        k4 = omega_psi * (y0 + (k0 * 3. / 16. + k3 * 9. / 16.) * dT);
+        k5 = omega_psi *
+          (y0 +
+           (-k0 * 3. / 7. + k1 * 2. / 7. + k2 * 12. / 7. - k3 * 12. / 7. + k4 * 8. / 7.) *
+           dT);
+
+        y_t = y0 + (7. * k0 + 32. * k2 + 12. * k3 + 32. * k4 + 7. * k5) * dT / 90.;
+
+        Quaternion<_S> q(y_t(3), -y_t(0), -y_t(1), -y_t(2));
+        q.normalize();
+
+        imuStateProp.q_IG = q;
+        Vector3<_S> delta_v_I_G = (((imu_state_k.q_IG.toRotationMatrix()).transpose()) *
+                                   (measurement_k.a - imu_state_k.b_a) +
+                                   imu_state_k.g) * dT;
+
+        for(int i=0; i<bbox_states_.size(); i++){
+            bboxState<_S> bboxes = bbox_states_[i]; //check copy
+            bboxes.r_tl.p_GR = bbox_states_[i].r_tl.p_GR + imu_state_k.v_I_G * dT;
+            bboxes.r_br.p_GR = bbox_states_[i].r_br.p_GR + imu_state_k.v_I_G * dT;
+            predicted_bboxes.push_back(bboxes);
+            //std::cout << "in propagation msckf r_tl" << bboxes.r_tl.p_GR << std::endl;
+        }
+
+
+        return predicted_bboxes;
+      }
+
+
 
       void removeTrackedFeature(const size_t featureID,
                                 std::vector<camState<_S>> &featCamStates,

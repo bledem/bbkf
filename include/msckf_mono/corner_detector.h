@@ -137,6 +137,7 @@ class TrackHandler
     double ransac_threshold_;
     CornerDetector detector_;
     CornerTracker tracker_;
+
     
     double cur_time_;
     cv::Mat cur_img_;

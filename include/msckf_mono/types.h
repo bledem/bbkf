@@ -92,6 +92,7 @@ template <typename _Scalar>
     struct bboxState {
 
         ray<_Scalar> r_tl, r_br;
+	std::vector<Vector3<_Scalar>> p_f_G_vect;
       _Scalar time;
 //last YOLO detection values (not updated)
         bbox<_Scalar> prev_detection;
