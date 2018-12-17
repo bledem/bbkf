@@ -90,15 +90,17 @@ template <typename _Scalar>
 
 template <typename _Scalar>
     struct bboxState {
-
+	 size_t bbox_id; 
+        size_t feature_id[4]= {0,0,0,0}; //track id
         ray<_Scalar> r_tl, r_br;
-	std::vector<Vector3<_Scalar>> p_f_G_vect;
+	Vector3<_Scalar> p_f_G_tl, p_f_G_br ;
       _Scalar time;
 //last YOLO detection values (not updated)
-        bbox<_Scalar> prev_detection;
-        int state_id; //for every new object
+        bbox<_Scalar> prev_detection, cur_detection;
+        int age; //for every new object
         float prev_time_detection;
       std::string Class;
+	bool associated;
     };
 
 

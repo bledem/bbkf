@@ -397,14 +397,14 @@ void TrackHandler::tracked_features(OutFeatureVector& features, IdVector& featur
 }
 
 //add in features and featre id argument the FAST detector found features
-void TrackHandler::new_features(OutFeatureVector& features, IdVector& feature_ids) {
+void TrackHandler::new_features(OutFeatureVector& features, OutFeatureVector& features_dist, IdVector& feature_ids) {
   // flag all grid positions that already have a feature in it
   for(const auto& f: cur_features_){
     detector_.set_grid_position(f);
   }
   detector_.detect_features(cur_img_, new_features_);
-  //std::cout << "[Detector] Found " << new_features_.size()
-  //          << " new features" << std::endl;
+//  std::cout << "[Detector] Found " << new_features_.size()
+//            << " new features" << std::endl;
 
   // generate ids for the new features
   //each new feature has an incresing id
@@ -419,9 +419,14 @@ void TrackHandler::new_features(OutFeatureVector& features, IdVector& feature_id
   visualizer_.add_new_features(new_features_, new_feature_ids_);
 
   features.clear();
+  features_dist.clear();
   feature_ids.clear();
 
   if(new_features_.size()){
+      features_dist.reserve(new_features_.size());
+      std::transform(new_features_.begin(), new_features_.end(), std::back_inserter(features_dist),
+          [](const cv::Point2f& pt){return msckf_mono::Vector2<float>{ pt.x, pt.y };});
+
     Point2fVector undistorted_pts;
     undistortPoints(new_features_, undistorted_pts);
 
@@ -432,6 +437,7 @@ void TrackHandler::new_features(OutFeatureVector& features, IdVector& feature_id
     std::copy(new_feature_ids_.begin(), new_feature_ids_.end(),
         std::back_inserter(feature_ids));
   }
+
 }
 
 void TrackHandler::undistortPoints(Point2fVector& in, Point2fVector& out){

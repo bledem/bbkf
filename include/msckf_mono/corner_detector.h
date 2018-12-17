@@ -108,7 +108,7 @@ class TrackHandler
 
     void set_current_image(cv::Mat img, double time);
     void tracked_features(OutFeatureVector& features, IdVector& feature_ids);
-    void new_features(OutFeatureVector& features, IdVector& feature_ids);
+    void new_features(OutFeatureVector& features, OutFeatureVector& features_dist, IdVector& feature_ids);
 
     void clear_tracks();
     size_t get_next_feature_id(){return next_feature_id_;}

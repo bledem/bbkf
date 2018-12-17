@@ -102,11 +102,11 @@ add_library(msckf_mono
 target_link_libraries(msckf_mono
   ${LINK_LIBS})
 
-add_executable(asl_msckf datasets/asl_msckf.cpp datasets/asl_readers.cpp)
-target_link_libraries(asl_msckf msckf_mono ${LINK_LIBS})
+#add_executable(asl_msckf datasets/asl_msckf.cpp datasets/asl_readers.cpp)
+#target_link_libraries(asl_msckf msckf_mono ${LINK_LIBS})
 
-add_executable(asl_msckf_no_ground_truth datasets/asl_msckf_no_ground_truth.cpp datasets/asl_readers.cpp)
-target_link_libraries(asl_msckf_no_ground_truth msckf_mono ${LINK_LIBS})
+#add_executable(asl_msckf_no_ground_truth datasets/asl_msckf_no_ground_truth.cpp datasets/asl_readers.cpp)
+#target_link_libraries(asl_msckf_no_ground_truth msckf_mono ${LINK_LIBS})
 
 add_executable(msckf_mono_node nodes/msckf_mono_node.cpp)
 target_link_libraries(msckf_mono_node msckf_mono ${LINK_LIBS})

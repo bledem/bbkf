@@ -112,10 +112,10 @@ namespace msckf_mono
 
     for(auto& reading : imu_since_prev_img){
       msckf_.propagate(reading);
-      if (bbTracker_.bbox_State_vect.size()>0){
-      msckf_.update_bboxes(bbTracker_.bbox_State_vect,reading);
+     // if (bbTracker_.bbox_State_vect.size()>0){
+      //msckf_.update_bboxes(bbTracker_.bbox_State_vect,reading);
       //cout << "out propagation msckf r_tl" << bbTracker_.bbox_State_vect[0].r_tl.p_GR << endl;
-}
+//}
 
 
       Vector3<float> gyro_measurement = R_imu_cam_ * (reading.omega - init_imu_state_.b_g);
@@ -136,25 +136,77 @@ namespace msckf_mono
 //    std::cout << "cur_id" << id << std::endl;
 //}
     std::vector<Vector2<float>,
-      Eigen::aligned_allocator<Vector2<float>>> new_features;
-    corner_detector::IdVector new_ids;
-    //detect the feature with the FAST detector and put it in new features
-    track_handler_->new_features(new_features, new_ids);
-//    for (auto id : new_ids){
-//    std::cout << "new_ids" << id << std::endl;
-//}
-    //
-    msckf_.augmentState(state_k_, (float)cur_image_time);
+      Eigen::aligned_allocator<Vector2<float>>> new_features, new_features_dist;
+    corner_detector::IdVector new_ids, bbox_feature;
 
-    //Updates the positions of tracked features (delete, keep, wait,..) at the current timestamp. delete all feature_track_to_residu
+    //detect the feature with the FAST detector and put it in new features
+    //this new feature would be used by update in feature_track_to_residual_
+    track_handler_->new_features(new_features, new_features_dist, new_ids);
+//        for (auto id : new_features_dist){
+//        std::cout << "new_features_dist" << id << std::endl;
+//    }
+
+    //list of id the feature the closer with each of the four corner [tl, tr, bl, br]*nb of box, if id=0, no feature is associated
+    bbox_feature = bbTracker_.find_feature(new_features_dist, new_ids );
+
+    for (int i=0; i<bbox_feature.size(); i++){
+        if (bbox_feature[i]>0){
+        std::cout << "***  bbox_feature " << bbox_feature[i] << std::endl;
+    }}
+
+    msckf_.augmentState(state_k_, (float)cur_image_time);
+       // for (auto id : cur_ids){
+
+
+    //Updates the positions of tracked features (delete, keep, wait,..) at the current timestamp. put them in feature_track_to_residual
     msckf_.update(cur_features, cur_ids);
+    if(cur_ids.size()>0){
+        std::cout << "***   cur_id from " << cur_ids[0] << " to " << cur_ids[cur_ids.size()-1]<< std::endl;
+    }
+    if(new_ids.size()>0){
+        std::cout << "***  new id from " << new_ids[0] << " to " << new_ids[new_ids.size()-1]<< std::endl;
+    }
+
 
     //we add to current_features_ the FAST detected feature
     msckf_.addFeatures(new_features, new_ids);
+   // std::cout << "**** addFeatures cur_id" << new_ids[0] << " to " << new_ids[new_ids.size()-1]<< std::endl;
 
-    //
-    msckf_.marginalize();
+    //compute p_f_G for feature_track_to_residual of the update vector
+    std::vector<featureTrackToResidualize<float>>  res_tracks = msckf_.getResTracks();
+
+    msckf_.marginalize(); //does not change trackToResidualize which contain only cur feature track
+
+
+    //we retrieve the p_f_g of the feature which has been associated with abounding box
+    auto imu_state = msckf_.getImuState();
+    std::vector<featureTrack<float>> tracks = msckf_.getTracks();
+     std::vector<size_t> tracks_ids = msckf_.getTracksId();
+
+
+    for (int i=0; i<bbTracker_.bbox_State_vect.size(); i++) {
+
+            if((bbox_feature[i+(i/4)]!=0)){ //0,4
+            auto id_tl =
+              find(tracks_ids.begin(), tracks_ids.end(),(bbox_feature[i+(i/4)]));
+
+            cout<< "******imu_state.p_I_G" << imu_state.p_I_G << " &tracks[id_tl].p_f_G" <<  tracks[(*id_tl)].p_f_G  << endl;
+
+         //bbTracker_.bbox_State_vect[i].p_f_G_tl =  imu_state.p_I_G - tracks[id_tl].p_f_G;
+         cout <<"****we gave p_f_G_tl to" << i <<"th box on" << bbTracker_.bbox_State_vect.size()<< endl;
+            }
+
+
+     }
+
     // msckf_.pruneRedundantStates();
+
+
+    for (int i=0; i<res_tracks.size();  i++){
+        for (int j=0; j<res_tracks[i].observations.size() ; j++){
+    //cout << "obersavtion of tracks" <<i << " is " << tracks[i].observations[j] << endl;
+        }
+    }
 
     //add a comparator of
     msckf_.pruneEmptyStates();
@@ -340,7 +392,7 @@ if(map_pub.getNumSubscribers()>0){
       if (bbTracker_.bb_state_.img_bboxes.list.size()>0){
 // the bounding box just detected
       for (int i=0; i<bbTracker_.bb_state_.img_bboxes.list.size(); i++){
-      ROS_INFO_STREAM("publshing the DETECTED bbox in green ===================");
+      //ROS_INFO_STREAM("publshing the DETECTED bbox in green ===================");
 
           cv::Point tl = cv::Point(bbTracker_.bb_state_.img_bboxes.list[i].xmin, bbTracker_.bb_state_.img_bboxes.list[i].ymin);
           cv::Point br = cv::Point(bbTracker_.bb_state_.img_bboxes.list[i].xmax, bbTracker_.bb_state_.img_bboxes.list[i].ymax);
@@ -365,13 +417,13 @@ if(bbTracker_.bbox_State_vect.size()){
 
       //bounding box predicted
       for (int i=0; i<bbTracker_.bbox_State_vect.size(); i++){
-    ROS_INFO_STREAM("publishing the predicted bbox in red ===================" );
+   // ROS_INFO_STREAM("publishing the predicted bbox in red ===================" );
           msckf_mono::bbox<float> predicted_bbox ;
           bbTracker_.project_world_to_pixel(bbTracker_.bbox_State_vect[i], predicted_bbox);
           cv::Point tl = cv::Point(predicted_bbox.xmin, predicted_bbox.ymin);
           cv::Point br = cv::Point(predicted_bbox.xmax, predicted_bbox.ymax);
           cv::rectangle(out_img.image, tl, br,cv::Scalar(0, 0, 255), 2, 8, 0) ;
-          ROS_INFO_STREAM("===================================================tl " << tl << "\n br" << br  );
+        //  ROS_INFO_STREAM("===================================================tl " << tl << "\n br" << br  );
 
 
       }
@@ -429,6 +481,7 @@ if(bbTracker_.bbox_State_vect.size()){
       "\n--b_g " << init_imu_state_.b_g.transpose() <<
       "\n--g " << init_imu_state_.g.transpose());
 
+    bbTracker_.init(init_imu_state_.p_I_G, init_imu_state_.q_IG, camera_, R_imu_cam_);
   }
 
   void RosInterface::setup_track_handler()
@@ -442,7 +495,6 @@ if(bbTracker_.bbox_State_vect.size()){
   {
     state_k_ = 0;
     msckf_.initialize(camera_, noise_params_, msckf_params_, init_imu_state_);
-    bbTracker_.init(init_imu_state_.p_I_G, init_imu_state_.q_IG, camera_, R_imu_cam_);
   }
 
   void RosInterface::load_parameters()

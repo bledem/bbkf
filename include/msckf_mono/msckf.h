@@ -152,48 +152,7 @@ namespace msckf_mono {
       }
 
 
-     void update_bboxes(std::vector<msckf_mono::bboxState<float>> &bbox_State_vect, imuReading<_S> &measurement_){
-        std::vector<msckf_mono::bboxState<float>> bbox_State_vect_updated;
-        float min_distance[4]; //tl, tr, bl, br
-        float dist;
 
-        //for all the detected boxes
-         for (auto bboxe_state : bbox_State_vect) {
-
-                 msckf_mono::Vector2<float> bbox_corner[4];
-                 msckf_mono::Vector2<float>  tl, tr, bl,br, observation;
-                 tl << bboxe_state.prev_detection.xmin, bboxe_state.prev_detection.ymin;
-                 tr << bboxe_state.prev_detection.xmax, bboxe_state.prev_detection.ymin;
-                 bl << bboxe_state.prev_detection.xmin, bboxe_state.prev_detection.ymax;
-                 br << bboxe_state.prev_detection.xmax, bboxe_state.prev_detection.ymax;
-                 bbox_corner[0]=tl;
-                 bbox_corner[1]=tr;
-                 bbox_corner[2]=bl;
-                 bbox_corner[3]=br;
-
-                 //for each corner
-                 if (feature_tracks_to_residualize_.size()>0){
-                 for(int i=0; i<4; i++){
-                     //init the min distance
-                     min_distance[i] = (bbox_corner[i]-feature_tracks_to_residualize_[0].observations[0]).norm();
-                     for (auto track = feature_tracks_to_residualize_.begin();
-                          track != feature_tracks_to_residualize_.end(); track++)
-                     {
-                         dist = (bbox_corner[i]-track->observations[track->observations.size()]).norm();
-                         if (dist< min_distance[i]){
-                             min_distance[i]= dist;
-                         }
-
-                 }
-//
-                 std::cout <<"min_distance " << i << " is " << min_distance[i] << std::endl;
-             }
-
-
-     }
-
-         }
-     }
 
 
       // Generates a new camera state and adds it to the full state and covariance.
@@ -361,11 +320,14 @@ namespace msckf_mono {
         // Will assume feature IDs are unique per feature per call
         // TODO: revisit this assumption if necessary
         using camStateIter = typename std::vector<camState<_S>>::iterator;
+          //std::cout <<"already existing id in addFeature" << tracked_feature_ids_[0] << "to " << tracked_feature_ids_[tracked_feature_ids_.size()-1] << std::endl;
 
           //for all new features
         for (size_t i = 0; i < features.size(); i++) {
           size_t id = feature_ids[i];
           //if it does not exist already
+          if(tracked_feature_ids_.size()>0){
+}
           if (std::find(tracked_feature_ids_.begin(), tracked_feature_ids_.end(), id) == tracked_feature_ids_.end()) {
             // New feature
             featureTrack<_S> track;
@@ -384,6 +346,8 @@ namespace msckf_mono {
             return;
           }
         }
+        std::cout <<"already existing id in addFeature after" << tracked_feature_ids_[0] << "to " << tracked_feature_ids_[tracked_feature_ids_.size()-1] << std::endl;
+
       }
 
       // Finds feature tracks that have been lost, removes them from the filter, and uses them
@@ -402,6 +366,7 @@ namespace msckf_mono {
 
           std::vector<bool> valid_tracks;
           std::vector<Vector3<_S>, Eigen::aligned_allocator<Vector3<_S>>> p_f_G_vec;
+
           int total_nObs = 0;
 
           //for every validate track to residualize
@@ -414,6 +379,7 @@ namespace msckf_mono {
               continue;
             }
 
+            std::cout << "in marginalize we compute for this id" << track->feature_id << std::endl;
             Vector3<_S> p_f_G;
             _S Jcost, RCOND;
 
@@ -427,7 +393,7 @@ namespace msckf_mono {
               map_.push_back(p_f_G);
             }
 
-            p_f_G_vec.push_back(p_f_G);
+            p_f_G_vec.push_back(p_f_G); //we push the p_f_g in the order of the track
             int nObs = track->observations.size();
 
             //the projection of this p_f_G 3D world point in first cam state
@@ -475,6 +441,7 @@ namespace msckf_mono {
 
             Vector3<_S> p_f_G = p_f_G_vec[iter];
             VectorX<_S> r_j = calcResidual(p_f_G, track.cam_states, track.observations);
+            std::cout << "in marginalized for observation in the track no" << iter << " and this track owned:" << track.observations.size() << "observation, his id is " <<track.feature_id << std::endl;
 
             int nObs = track.observations.size();
             MatrixX<_S> R_j = (rep.replicate(nObs, 1)).asDiagonal();
@@ -507,239 +474,239 @@ namespace msckf_mono {
 
 
 
-      // Removes camera states that are not considered 'keyframes' (too close in distance or
-      // angle to their neighboring camera states), and marginalizes their observations.
-      void pruneRedundantStates() {
-        // Cap number of cam states used in computation to max_cam_states
-        if (cam_states_.size() < 20){
-          return;
-        }
+//      // Removes camera states that are not considered 'keyframes' (too close in distance or
+//      // angle to their neighboring camera states), and marginalizes their observations.
+//      void pruneRedundantStates() {
+//        // Cap number of cam states used in computation to max_cam_states
+//        if (cam_states_.size() < 20){
+//          return;
+//        }
 
-        // Find two camera states to rmoved
-        std::vector<size_t> rm_cam_state_ids;
-        rm_cam_state_ids.clear();
-        findRedundantCamStates(rm_cam_state_ids);
+//        // Find two camera states to rmoved
+//        std::vector<size_t> rm_cam_state_ids;
+//        rm_cam_state_ids.clear();
+//        findRedundantCamStates(rm_cam_state_ids);
 
-        // Find size of jacobian matrix
-        size_t jacobian_row_size = 0;
-        for (auto &feature : feature_tracks_) {
-          std::vector<size_t> involved_cam_state_ids;
-          size_t obs_id;
-          // Check how many camera states to be removed are associated with a given
-          // feature
-          for (const auto &cam_id : rm_cam_state_ids) {
-            auto obs_it = find(feature.cam_state_indices.begin(),
-                               feature.cam_state_indices.end(), cam_id);
-            if (obs_it != feature.cam_state_indices.end()) {
-              involved_cam_state_ids.push_back(cam_id);
-              obs_id = distance(feature.cam_state_indices.begin(), obs_it);
-            }
-          }
+//        // Find size of jacobian matrix
+//        size_t jacobian_row_size = 0;
+//        for (auto &feature : feature_tracks_) {
+//          std::vector<size_t> involved_cam_state_ids;
+//          size_t obs_id;
+//          // Check how many camera states to be removed are associated with a given
+//          // feature
+//          for (const auto &cam_id : rm_cam_state_ids) {
+//            auto obs_it = find(feature.cam_state_indices.begin(),
+//                               feature.cam_state_indices.end(), cam_id);
+//            if (obs_it != feature.cam_state_indices.end()) {
+//              involved_cam_state_ids.push_back(cam_id);
+//              obs_id = distance(feature.cam_state_indices.begin(), obs_it);
+//            }
+//          }
 
-          if (involved_cam_state_ids.size() == 0) continue;
-          if (involved_cam_state_ids.size() == 1) {
-            feature.observations.erase(feature.observations.begin() + obs_id);
-            feature.cam_state_indices.erase(feature.cam_state_indices.begin() +
-                                            obs_id);
-            continue;
-          }
+//          if (involved_cam_state_ids.size() == 0) continue;
+//          if (involved_cam_state_ids.size() == 1) {
+//            feature.observations.erase(feature.observations.begin() + obs_id);
+//            feature.cam_state_indices.erase(feature.cam_state_indices.begin() +
+//                                            obs_id);
+//            continue;
+//          }
 
-          if (!feature.initialized) {
-            std::vector<camState<_S>> feature_associated_cam_states;
-            for (const auto &cam_state : cam_states_) {
-              if (find(feature.cam_state_indices.begin(),
-                       feature.cam_state_indices.end(),
-                       cam_state.state_id) != feature.cam_state_indices.end())
-                feature_associated_cam_states.push_back(cam_state);
-            }
-            if (!checkMotion(feature.observations.front(),
-                             feature_associated_cam_states)) {
-              for (const auto &cam_id : involved_cam_state_ids) {
-                auto cam_it = find(feature.cam_state_indices.begin(),
-                                   feature.cam_state_indices.end(), cam_id);
-                if (cam_it != feature.cam_state_indices.end()) {
-                  size_t obs_idx =
-                    distance(feature.cam_state_indices.begin(), cam_it);
-                  feature.cam_state_indices.erase(cam_it);
-                  feature.observations.erase(feature.observations.begin() + obs_idx);
-                }
-              }
-              continue;
-            } else {
-              Vector3<_S> p_f_G;
-              //if success we go directly to give the alue to the feature, else we enter the loop
-              if (!initializePosition(feature_associated_cam_states,
-                                      feature.observations, p_f_G)) {
-                for (const auto &cam_id : involved_cam_state_ids) {
-                  auto cam_it = find(feature.cam_state_indices.begin(),
-                                     feature.cam_state_indices.end(), cam_id);
-                  if (cam_it != feature.cam_state_indices.end()) {
-                    size_t obs_idx =
-                      distance(feature.cam_state_indices.begin(), cam_it);
-                    feature.cam_state_indices.erase(cam_it);
-                    feature.observations.erase(feature.observations.begin() +
-                                               obs_idx);
-                  }
-                }
-                continue;
-              } else {
-                feature.initialized = true;
-                feature.p_f_G = p_f_G;
-                map_.push_back(p_f_G);
-              }
-            }
-          }
+//          if (!feature.initialized) {
+//            std::vector<camState<_S>> feature_associated_cam_states;
+//            for (const auto &cam_state : cam_states_) {
+//              if (find(feature.cam_state_indices.begin(),
+//                       feature.cam_state_indices.end(),
+//                       cam_state.state_id) != feature.cam_state_indices.end())
+//                feature_associated_cam_states.push_back(cam_state);
+//            }
+//            if (!checkMotion(feature.observations.front(),
+//                             feature_associated_cam_states)) {
+//              for (const auto &cam_id : involved_cam_state_ids) {
+//                auto cam_it = find(feature.cam_state_indices.begin(),
+//                                   feature.cam_state_indices.end(), cam_id);
+//                if (cam_it != feature.cam_state_indices.end()) {
+//                  size_t obs_idx =
+//                    distance(feature.cam_state_indices.begin(), cam_it);
+//                  feature.cam_state_indices.erase(cam_it);
+//                  feature.observations.erase(feature.observations.begin() + obs_idx);
+//                }
+//              }
+//              continue;
+//            } else {
+//              Vector3<_S> p_f_G;
+//              //if success we go directly to give the alue to the feature, else we enter the loop
+//              if (!initializePosition(feature_associated_cam_states,
+//                                      feature.observations, p_f_G)) {
+//                for (const auto &cam_id : involved_cam_state_ids) {
+//                  auto cam_it = find(feature.cam_state_indices.begin(),
+//                                     feature.cam_state_indices.end(), cam_id);
+//                  if (cam_it != feature.cam_state_indices.end()) {
+//                    size_t obs_idx =
+//                      distance(feature.cam_state_indices.begin(), cam_it);
+//                    feature.cam_state_indices.erase(cam_it);
+//                    feature.observations.erase(feature.observations.begin() +
+//                                               obs_idx);
+//                  }
+//                }
+//                continue;
+//              } else {
+//                feature.initialized = true;
+//                feature.p_f_G = p_f_G;
+//                map_.push_back(p_f_G);
+//              }
+//            }
+//          }
 
-          jacobian_row_size += 2 * involved_cam_state_ids.size() - 3;
-        }
+//          jacobian_row_size += 2 * involved_cam_state_ids.size() - 3;
+//        }
 
-        // Compute Jacobian and Residual
-        MatrixX<_S> H_x = MatrixX<_S>::Zero(jacobian_row_size, 15 + 6 * cam_states_.size());
-        MatrixX<_S> R_x = MatrixX<_S>::Zero(jacobian_row_size, jacobian_row_size);
-        VectorX<_S> r_x = VectorX<_S>::Zero(jacobian_row_size);
-        int stack_counter = 0;
+//        // Compute Jacobian and Residual
+//        MatrixX<_S> H_x = MatrixX<_S>::Zero(jacobian_row_size, 15 + 6 * cam_states_.size());
+//        MatrixX<_S> R_x = MatrixX<_S>::Zero(jacobian_row_size, jacobian_row_size);
+//        VectorX<_S> r_x = VectorX<_S>::Zero(jacobian_row_size);
+//        int stack_counter = 0;
 
-        Vector2<_S> rep;
-        rep << noise_params_.u_var_prime, noise_params_.v_var_prime;
+//        Vector2<_S> rep;
+//        rep << noise_params_.u_var_prime, noise_params_.v_var_prime;
 
-        for (auto &feature : feature_tracks_) {
-          std::vector<size_t> involved_cam_state_ids;
-          std::vector<Vector2<_S>, Eigen::aligned_allocator<Vector2<_S>>> involved_observations;
-          for (const auto &cam_id : rm_cam_state_ids) {
-            auto cam_it = find(feature.cam_state_indices.begin(),
-                               feature.cam_state_indices.end(), cam_id);
-            if (cam_it != feature.cam_state_indices.end()) {
-              involved_cam_state_ids.push_back(cam_id);
-              involved_observations.push_back(feature.observations[distance(
-                  feature.cam_state_indices.begin(), cam_it)]);
-            }
-          }
+//        for (auto &feature : feature_tracks_) {
+//          std::vector<size_t> involved_cam_state_ids;
+//          std::vector<Vector2<_S>, Eigen::aligned_allocator<Vector2<_S>>> involved_observations;
+//          for (const auto &cam_id : rm_cam_state_ids) {
+//            auto cam_it = find(feature.cam_state_indices.begin(),
+//                               feature.cam_state_indices.end(), cam_id);
+//            if (cam_it != feature.cam_state_indices.end()) {
+//              involved_cam_state_ids.push_back(cam_id);
+//              involved_observations.push_back(feature.observations[distance(
+//                  feature.cam_state_indices.begin(), cam_it)]);
+//            }
+//          }
 
-          size_t nObs = involved_cam_state_ids.size();
-          if (nObs == 0) continue;
+//          size_t nObs = involved_cam_state_ids.size();
+//          if (nObs == 0) continue;
 
-          std::vector<camState<_S>> involved_cam_states;
-          std::vector<size_t> cam_state_indices;
-          int cam_state_iter = 0;
-          for (const auto &cam_state : cam_states_) {
-            if (find(involved_cam_state_ids.begin(), involved_cam_state_ids.end(),
-                     cam_state.state_id) != involved_cam_state_ids.end()) {
-              involved_cam_states.push_back(cam_state);
-              cam_state_indices.push_back(cam_state_iter);
-            }
-            cam_state_iter++;
-          }
+//          std::vector<camState<_S>> involved_cam_states;
+//          std::vector<size_t> cam_state_indices;
+//          int cam_state_iter = 0;
+//          for (const auto &cam_state : cam_states_) {
+//            if (find(involved_cam_state_ids.begin(), involved_cam_state_ids.end(),
+//                     cam_state.state_id) != involved_cam_state_ids.end()) {
+//              involved_cam_states.push_back(cam_state);
+//              cam_state_indices.push_back(cam_state_iter);
+//            }
+//            cam_state_iter++;
+//          }
 
-          // Calculate H_xj and residual
-          VectorX<_S> r_j =
-            calcResidual(feature.p_f_G, involved_cam_states, involved_observations);
+//          // Calculate H_xj and residual
+//          VectorX<_S> r_j =
+//            calcResidual(feature.p_f_G, involved_cam_states, involved_observations);
 
-          MatrixX<_S> R_j = (rep.replicate(nObs, 1)).asDiagonal();
+//          MatrixX<_S> R_j = (rep.replicate(nObs, 1)).asDiagonal();
 
-          MatrixX<_S> H_x_j, A_j;
-          calcMeasJacobian(feature.p_f_G, cam_state_indices, H_x_j, A_j);
+//          MatrixX<_S> H_x_j, A_j;
+//          calcMeasJacobian(feature.p_f_G, cam_state_indices, H_x_j, A_j);
 
-          // Stacked residuals and friends
-          VectorX<_S> r_x_j = A_j.transpose() * r_j;
-          MatrixX<_S> R_x_j = A_j.transpose() * R_j * A_j;
+//          // Stacked residuals and friends
+//          VectorX<_S> r_x_j = A_j.transpose() * r_j;
+//          MatrixX<_S> R_x_j = A_j.transpose() * R_j * A_j;
 
-          if (gatingTest(H_x_j, r_x_j, nObs - 1)) {
-            r_x.segment(stack_counter, r_x_j.size()) = r_x_j;
-            H_x.block(stack_counter, 0, H_x_j.rows(), H_x_j.cols()) = H_x_j;
-            R_x.block(stack_counter, stack_counter, R_x_j.rows(), R_x_j.cols()) =
-              R_x_j;
+//          if (gatingTest(H_x_j, r_x_j, nObs - 1)) {
+//            r_x.segment(stack_counter, r_x_j.size()) = r_x_j;
+//            H_x.block(stack_counter, 0, H_x_j.rows(), H_x_j.cols()) = H_x_j;
+//            R_x.block(stack_counter, stack_counter, R_x_j.rows(), R_x_j.cols()) =
+//              R_x_j;
 
-            stack_counter += H_x_j.rows();
-          }
+//            stack_counter += H_x_j.rows();
+//          }
 
-          // Done, now remove these cam states registrations and corresponding
-          // observations from the feature
-          for (const auto &cam_id : involved_cam_state_ids) {
-            auto cam_it = find(feature.cam_state_indices.begin(),
-                               feature.cam_state_indices.end(), cam_id);
-            if (cam_it != feature.cam_state_indices.end()) {
-              feature.cam_state_indices.erase(cam_it);
-              feature.observations.erase(
-                feature.observations.begin() +
-                distance(feature.cam_state_indices.begin(), cam_it));
-            }
-          }
-        }
+//          // Done, now remove these cam states registrations and corresponding
+//          // observations from the feature
+//          for (const auto &cam_id : involved_cam_state_ids) {
+//            auto cam_it = find(feature.cam_state_indices.begin(),
+//                               feature.cam_state_indices.end(), cam_id);
+//            if (cam_it != feature.cam_state_indices.end()) {
+//              feature.cam_state_indices.erase(cam_it);
+//              feature.observations.erase(
+//                feature.observations.begin() +
+//                distance(feature.cam_state_indices.begin(), cam_it));
+//            }
+//          }
+//        }
 
-        H_x.conservativeResize(stack_counter, H_x.cols());
-        r_x.conservativeResize(stack_counter);
-        R_x.conservativeResize(stack_counter, stack_counter);
+//        H_x.conservativeResize(stack_counter, H_x.cols());
+//        r_x.conservativeResize(stack_counter);
+//        R_x.conservativeResize(stack_counter, stack_counter);
 
-        // Perform Measurement Update
-        measurementUpdate(H_x, r_x, R_x);
+//        // Perform Measurement Update
+//        measurementUpdate(H_x, r_x, R_x);
 
-        // Time to prune
-        std::vector<size_t> deleteIdx(0);
+//        // Time to prune
+//        std::vector<size_t> deleteIdx(0);
 
-        size_t num_states = cam_states_.size();
+//        size_t num_states = cam_states_.size();
 
-        // Find all cam states which are marked for deletion
-        auto cam_state_it = cam_states_.begin();
-        size_t num_deleted = 0;
-        int cam_state_pos = 0;
+//        // Find all cam states which are marked for deletion
+//        auto cam_state_it = cam_states_.begin();
+//        size_t num_deleted = 0;
+//        int cam_state_pos = 0;
 
-        while (cam_state_it != cam_states_.end()) {
-          if (find(rm_cam_state_ids.begin(), rm_cam_state_ids.end(),
-                   cam_state_it->state_id) != rm_cam_state_ids.end()) {
-            // TODO: add to pruned states? If yes, maybe sort states by state id
-            deleteIdx.push_back(cam_state_pos + num_deleted);
-            pruned_states_.push_back(*cam_state_it);
-            cam_state_it = cam_states_.erase(cam_state_it);
-            ++num_deleted;
-          } else {
-            ++cam_state_it;
-            ++cam_state_pos;
-          }
-        }
+//        while (cam_state_it != cam_states_.end()) {
+//          if (find(rm_cam_state_ids.begin(), rm_cam_state_ids.end(),
+//                   cam_state_it->state_id) != rm_cam_state_ids.end()) {
+//            // TODO: add to pruned states? If yes, maybe sort states by state id
+//            deleteIdx.push_back(cam_state_pos + num_deleted);
+//            pruned_states_.push_back(*cam_state_it);
+//            cam_state_it = cam_states_.erase(cam_state_it);
+//            ++num_deleted;
+//          } else {
+//            ++cam_state_it;
+//            ++cam_state_pos;
+//          }
+//        }
 
-        if (num_deleted != 0) {
-          int n_remove = 0;
-          int n_keep = 0;
-          std::vector<bool> to_keep(num_states, false);
-          for (size_t IDx = 0; IDx < num_states; ++IDx) {
-            if (find(deleteIdx.begin(), deleteIdx.end(), IDx) != deleteIdx.end())
-              ++n_remove;
-            else {
-              to_keep[IDx] = true;
-              ++n_keep;
-            }
-          }
+//        if (num_deleted != 0) {
+//          int n_remove = 0;
+//          int n_keep = 0;
+//          std::vector<bool> to_keep(num_states, false);
+//          for (size_t IDx = 0; IDx < num_states; ++IDx) {
+//            if (find(deleteIdx.begin(), deleteIdx.end(), IDx) != deleteIdx.end())
+//              ++n_remove;
+//            else {
+//              to_keep[IDx] = true;
+//              ++n_keep;
+//            }
+//          }
 
-          int remove_counter = 0;
-          int keep_counter = 0;
-          VectorXi keepCovarIdx(6 * n_keep);
-          VectorXi removeCovarIdx(6 * n_remove);
+//          int remove_counter = 0;
+//          int keep_counter = 0;
+//          VectorXi keepCovarIdx(6 * n_keep);
+//          VectorXi removeCovarIdx(6 * n_remove);
 
-          for (size_t IDx = 0; IDx < num_states; ++IDx) {
-            if (!to_keep[IDx]) {
-              removeCovarIdx.segment<6>(6 * remove_counter) =
-                VectorXi::LinSpaced(6, 6 * IDx, 6 * (IDx + 1) - 1);
-              ++remove_counter;
-            } else {
-              keepCovarIdx.segment<6>(6 * keep_counter) =
-                VectorXi::LinSpaced(6, 6 * IDx, 6 * (IDx + 1) - 1);
-              ++keep_counter;
-            }
-          }
+//          for (size_t IDx = 0; IDx < num_states; ++IDx) {
+//            if (!to_keep[IDx]) {
+//              removeCovarIdx.segment<6>(6 * remove_counter) =
+//                VectorXi::LinSpaced(6, 6 * IDx, 6 * (IDx + 1) - 1);
+//              ++remove_counter;
+//            } else {
+//              keepCovarIdx.segment<6>(6 * keep_counter) =
+//                VectorXi::LinSpaced(6, 6 * IDx, 6 * (IDx + 1) - 1);
+//              ++keep_counter;
+//            }
+//          }
 
-          MatrixX<_S> prunedCamCovar;
-          square_slice(cam_covar_, keepCovarIdx, prunedCamCovar);
+//          MatrixX<_S> prunedCamCovar;
+//          square_slice(cam_covar_, keepCovarIdx, prunedCamCovar);
 
-          cam_covar_.resize(prunedCamCovar.rows(), prunedCamCovar.cols());
-          cam_covar_ = prunedCamCovar;
+//          cam_covar_.resize(prunedCamCovar.rows(), prunedCamCovar.cols());
+//          cam_covar_ = prunedCamCovar;
 
-          Matrix<_S, 15, Dynamic> prunedImuCamCovar;
-          column_slice(imu_cam_covar_, keepCovarIdx, prunedImuCamCovar);
+//          Matrix<_S, 15, Dynamic> prunedImuCamCovar;
+//          column_slice(imu_cam_covar_, keepCovarIdx, prunedImuCamCovar);
 
-          imu_cam_covar_.resize(prunedImuCamCovar.rows(), prunedImuCamCovar.cols());
-          imu_cam_covar_ = prunedImuCamCovar;
-        }
-      }
+//          imu_cam_covar_.resize(prunedImuCamCovar.rows(), prunedImuCamCovar.cols());
+//          imu_cam_covar_ = prunedImuCamCovar;
+//        }
+//      }
 
 
 
@@ -889,11 +856,20 @@ namespace msckf_mono {
         return camera_;
       }
 
-      inline std::vector<featureTrackToResidualize<_S>> getTracks()
+      inline std::vector<featureTrackToResidualize<_S>> getResTracks()
       {
         return feature_tracks_to_residualize_;
       }
+      inline std::vector<featureTrack<_S>> getTracks()
+      {
+        return feature_tracks_;
+      }
 
+      inline std::vector<size_t> getTracksId()
+      {
+        return tracked_feature_ids_
+;
+      }
 
       inline camState<_S> getCamState(size_t i)
       {
@@ -1584,8 +1560,8 @@ namespace msckf_mono {
 
         for(int i=0; i<bbox_states_.size(); i++){
             bboxState<_S> bboxes = bbox_states_[i]; //check copy
-            bboxes.r_tl.p_GR = bbox_states_[i].r_tl.p_GR + imu_state_k.v_I_G * dT;
-            bboxes.r_br.p_GR = bbox_states_[i].r_br.p_GR + imu_state_k.v_I_G * dT;
+            bboxes.p_f_G_tl = bbox_states_[i].p_f_G_tl + imu_state_k.v_I_G * dT; //TO DO check computation
+            bboxes.p_f_G_br = bbox_states_[i].p_f_G_br + imu_state_k.v_I_G * dT;
             predicted_bboxes.push_back(bboxes);
             //std::cout << "in propagation msckf r_tl" << bboxes.r_tl.p_GR << std::endl;
         }

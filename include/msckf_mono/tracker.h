@@ -29,6 +29,8 @@
 #include <darknet_ros_msgs/BoundingBoxes.h>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
+#include <msckf_mono/corner_detector.h>
+
 
 #include <sensor_msgs/PointCloud2.h>
 #include <sensor_msgs/Imu.h>
@@ -105,6 +107,8 @@ public:
     msckf_mono::Matrix3<float> R_imu_cam_;
     msckf_mono::Camera<float> camera_;
     float z_C;
+    float thresh, thresh_pixel; //for pixel distance
+    size_t id_count;
 
 
 
@@ -126,6 +130,10 @@ public:
                                 msckf_mono::bbox<float> &detected_bbox );
    void project_world_to_pixel(  msckf_mono::bboxState<float> bbox_state,
                                 msckf_mono::bbox<float> &predicted_bbox );
+   corner_detector::IdVector find_feature( std::vector<msckf_mono::Vector2<float>,
+                                           Eigen::aligned_allocator<msckf_mono::Vector2<float>>>  new_features_dist_, corner_detector::IdVector new_ids);
+
+   bool IOU(msckf_mono::bbox<float> bboxes1, msckf_mono::bbox<float> bboxes2);
 
 };
 

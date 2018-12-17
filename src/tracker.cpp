@@ -56,13 +56,32 @@ void boundingBoxState_t::init_node(ros::NodeHandle n) {
 }
 
 
+bool bbTracker_t::IOU(msckf_mono::bbox<float> bboxes1, msckf_mono::bbox<float> bboxes2){
+    float xx1, xx2, yy1,yy2, w,h, inter_area, o;
+
+ xx1 = std::max(bboxes1.xmin, bboxes2.xmin); //tl
+ yy1 = std::max(bboxes1.ymin, bboxes2.ymin);
+ xx2 = std::min(bboxes1.xmax, bboxes2.xmax); //br
+ yy2 = std::min(bboxes1.ymax, bboxes2.ymax);
+ w = std::max(float(0.0), xx2 - xx1);
+ h = std::max(float(0.0), yy2 - yy1);
+ inter_area = w*h; //inter area
+ float bb1_area = (bboxes1.xmax-bboxes1.xmin)*(bboxes1.ymax - bboxes1.ymin);
+ float bb2_area = (bboxes2.xmax - bboxes2.xmin)*(bboxes2.ymax - bboxes2.ymin );
+ o = inter_area / ((bb1_area + bb2_area)- inter_area);
+ cout << "IOU result" << o << "thresh" << thresh << endl;
+  if (o>thresh){
+         return true;
+}else{
+         return false;
+}
+}
 
 void bbTracker_t::boundingboxesCallback(const darknet_ros_msgs::BoundingBoxes &bboxes_ros){
     double img_bboxes_time = bboxes_ros.header.stamp.toSec();
     bb_state_.img_w_= bboxes_ros.img_w;
     bb_state_.img_h_= bboxes_ros.img_h;
     //cout << bboxes_ros.img_w < " is saved in " << bb_state_.img_w_ << endl;
-
     msckf_mono::imgBboxes<float> bboxes;
     for (unsigned int i=0; i< bboxes_ros.bounding_boxes.size(); i++){
         msckf_mono::bbox<float> boundingBox;
@@ -81,7 +100,7 @@ void bbTracker_t::boundingboxesCallback(const darknet_ros_msgs::BoundingBoxes &b
 
     }
     if (bboxes_ros.bounding_boxes.size() > 0){
-        ROS_INFO_STREAM("Has " << bboxes_ros.bounding_boxes.size() << " bounding boxes detected");
+        ROS_INFO_STREAM("Has " << bboxes_ros.bounding_boxes.size() << "or" << bboxes.list.size()<< " bounding boxes detected and had already " <<bbox_State_vect.size() );
 
     }
 
@@ -90,15 +109,61 @@ void bbTracker_t::boundingboxesCallback(const darknet_ros_msgs::BoundingBoxes &b
    // img_bboxes_states_.push_back(img_bboxes);
     frame_count =0;
 
-    bbox_State_vect.clear();
+    //bbox_State_vect.clear();
+
+    //for every bounding box of our state
+std::vector<msckf_mono::bboxState<float>> reserve;
+
       for (int i=0; i<bboxes.list.size(); i++){
-           msckf_mono::bboxState<float> rayState;
-           project_pixel_to_world(rayState.r_tl ,rayState.r_br , bboxes.list[i] );
+          bool tracked = false;
+
+          //check if bbox is already tracked
+          for (auto bbox_state : bbox_State_vect){
+    if(IOU(bboxes.list[i], bbox_state.cur_detection)){
+                    bbox_state.prev_detection = bbox_state.cur_detection; //update already existing bbox
+                    bbox_state.cur_detection = bboxes.list[i];
+                    bbox_state.age=0;
+                    bbox_state.time = bboxes_ros.header.stamp.toSec();
+                    tracked=true;
+                    cout << "tracked !! and id is"<< bbox_state.feature_id[0] << " " << bbox_state.feature_id[1] << " " << bbox_state.feature_id[2] <<
+                            " " <<bbox_state.feature_id[3] << endl;
+                    break; //quit the comparaison with the previous bbox updated
+          } else {
+               if (bbox_state.time /= bboxes_ros.header.stamp.toSec()){ //update only once
+               bbox_state.age++; //case the bbox was not matching we add up once its age if not done
+               bbox_state.prev_detection = bbox_state.cur_detection ;
+
+               bbox_state.time = bboxes_ros.header.stamp.toSec();
+
+               }
+           }
+           } //we dealt with all the previous saved bbox
+           if(tracked=false || bbox_State_vect.size() == 0){ //
+
+           //Box never has been tracked we will augment the bboxState
+           msckf_mono::bboxState<float> rayState; //create a bbox state
+           project_pixel_to_world(rayState.r_tl ,rayState.r_br , bboxes.list[i] ); //init the ray
+           rayState.bbox_id = id_count;
+           rayState.cur_detection = bboxes.list[i];
+           rayState.age=0;
+           rayState.time= bboxes_ros.header.stamp.toSec();
+           id_count++;
+           rayState.associated = false;
           // tl_G.p_GR = curr_imu_state_.p_I_G +  R_imu_cam_*(tl_C.p_GR - (-1*camera_.p_C_I)) ;
           // br_G.p_GR = curr_imu_state_.p_I_G +  R_imu_cam_*(br_C.p_GR - (-1*camera_.p_C_I)) ;
-           bbox_State_vect.push_back(rayState);
+
+           reserve.push_back(rayState);
 }
 
+          }
+
+
+
+      for (auto bbox_added : reserve){
+          bbox_State_vect.push_back(bbox_added);
+      }
+      reserve.clear();
+      cout << "now we have" <<bbox_State_vect.size() << endl;
 
 }
 
@@ -111,36 +176,36 @@ void bbTracker_t::project_pixel_to_world(  msckf_mono::ray<float>& tl_ray, msckf
    //in CAM frame
     float x1  = ((detected_bbox.xmin-camera_.c_u)*z_C )/camera_.f_u;
     float y1 = ((detected_bbox.ymin-camera_.c_v)*z_C )/camera_.f_v;
-    cout <<"from imu position=" <<curr_imu_state_.p_I_G<< endl;
+    //cout <<"from imu position=" <<curr_imu_state_.p_I_G<< endl;
 
-    cout <<"from bbox xmin=" << detected_bbox.xmin<< ", ymin= " <<detected_bbox.ymin << endl;
-    cout <<"from bbox xmax=" << detected_bbox.xmax<< ", ymax= " <<detected_bbox.ymax << endl;
+    //cout <<"from bbox xmin=" << detected_bbox.xmin<< ", ymin= " <<detected_bbox.ymin << endl;
+    //cout <<"from bbox xmax=" << detected_bbox.xmax<< ", ymax= " <<detected_bbox.ymax << endl;
 
     //cout <<"from infos " << camera_.c_u << "," <<bb_state_.img_w_ << ", " << camera_.f_u <<endl;
 
     tl_ray_cam << x1, y1, z_C;
-    cout << "tl in cam frame" << tl_ray_cam << endl;
+    //cout << "tl in cam frame" << tl_ray_cam << endl;
     //in IMU frame
     tl_ray_cam = camera_.p_C_I + R_imu_cam_ * tl_ray_cam;
     //tl_ray_cam = R_imu_cam_  *(tl_ray_cam-( R_imu_cam_ * (-1. * camera_.p_C_I))); // R_cam_to_imu * (ray_in_cam - pos_imu_in_cam_frame)
-    cout << "tl in imu frame" << tl_ray_cam << endl;
+    //cout << "tl in imu frame" << tl_ray_cam << endl;
     //in WORLD frame
    tl_ray.p_GR= curr_imu_state_.p_I_G + curr_imu_state_.q_IG.inverse()*tl_ray_cam;
-    cout << "tl_ray in world frame" << tl_ray.p_GR << endl;
+    //cout << "tl_ray in world frame" << tl_ray.p_GR << endl;
 
 
 
     float x2  = (detected_bbox.xmax-camera_.c_u)*z_C/camera_.f_u;
     float y2 = (detected_bbox.ymax-camera_.c_v)*z_C/camera_.f_v;
     br_ray_cam << x2, y2, z_C;
-    cout << "br in cam frame" << br_ray_cam << endl;
+    //cout << "br in cam frame" << br_ray_cam << endl;
     //br_ray_cam = R_imu_cam_  *(br_ray_cam-( R_imu_cam_ * (-1. * camera_.p_C_I))); // R_cam_to_imu * (ray_in_cam - pos_cam_in_imu_frame)
     br_ray_cam = camera_.p_C_I +R_imu_cam_ * br_ray_cam;
-    cout << "br in imu frame" << br_ray_cam << endl;
+    //cout << "br in imu frame" << br_ray_cam << endl;
     //in WORLD frame
      br_ray.p_GR= curr_imu_state_.p_I_G + curr_imu_state_.q_IG.inverse()*br_ray_cam; // transpose or not??
 
-  cout << "br_ray in world frame" << br_ray.p_GR << endl;
+  //cout << "br_ray in world frame" << br_ray.p_GR << endl;
 //  cout <<"from x,y " << detected_bbox.xmax<< "," <<detected_bbox.ymax << endl;
 
 }
@@ -155,18 +220,18 @@ void bbTracker_t::project_world_to_pixel(  msckf_mono::bboxState<float> bbox_sta
 
       //tl_ray_cam_in_C = q_CG.toRotationMatrix()*bbox_state.r_tl.p_GR;
 
-      tl_ray_cam_in_C = curr_imu_state_.q_IG*(bbox_state.r_tl.p_GR- curr_imu_state_.p_I_G);
+      tl_ray_cam_in_C = curr_imu_state_.q_IG*(bbox_state.p_f_G_tl- curr_imu_state_.p_I_G);
       tl_ray_cam_in_C = R_imu_cam_.inverse()* (tl_ray_cam_in_C- camera_.p_C_I );
       //tl_ray_cam_in_C /= tl_ray_cam_in_C.z();
-      cout << "tl in cam frame" << tl_ray_cam_in_C << endl;
+      //cout << "tl in cam frame" << tl_ray_cam_in_C << endl;
       predicted_bbox.xmin = (tl_ray_cam_in_C.x()*camera_.f_u/tl_ray_cam_in_C.z())+camera_.c_u;
       predicted_bbox.ymin = (tl_ray_cam_in_C.y()*camera_.f_v/tl_ray_cam_in_C.z())+camera_.c_v;
 
       //br_ray_cam_in_C = q_CG.toRotationMatrix()*bbox_state.r_br.p_GR;
       //br_ray_cam_in_C /= br_ray_cam_in_C.z();
-      br_ray_cam_in_C = curr_imu_state_.q_IG*(bbox_state.r_br.p_GR- curr_imu_state_.p_I_G);
+      br_ray_cam_in_C = curr_imu_state_.q_IG*(bbox_state.p_f_G_br- curr_imu_state_.p_I_G);
       br_ray_cam_in_C = R_imu_cam_.inverse()* (br_ray_cam_in_C- camera_.p_C_I );
-      cout << "br in cam frame" << br_ray_cam_in_C << endl;
+      //cout << "br in cam frame" << br_ray_cam_in_C << endl;
 
       predicted_bbox.xmax  = (br_ray_cam_in_C.x()*camera_.f_u/br_ray_cam_in_C.z())+camera_.c_u;
       predicted_bbox.ymax = (br_ray_cam_in_C.y()*camera_.f_v/br_ray_cam_in_C.z())+camera_.c_v;
@@ -174,8 +239,75 @@ void bbTracker_t::project_world_to_pixel(  msckf_mono::bboxState<float> bbox_sta
 
 }
 
+//Take the new found feature and their id and return the id of these closest features
+corner_detector::IdVector bbTracker_t::find_feature( std::vector<msckf_mono::Vector2<float>,
+                                                     Eigen::aligned_allocator<msckf_mono::Vector2<float>>>  new_features_dist_, corner_detector::IdVector new_ids)
+{
+   float min_distance[4]; //tl, tr, bl, br
+   float dist;
+   corner_detector::IdVector bbox_feature_id;
+
+   //for all the detected boxes
+    for (auto bboxe_state : bbox_State_vect) {
+        cout <<"time difference" << std::setprecision(10) <<ros::Time::now().toSec()- bboxe_state.time << "ms" << endl;
 
 
+        if (bboxe_state.age == 0 ) { //try to find if the box was
+            bboxe_state.age ++;
+
+        //Create a list of the corner of this box
+            msckf_mono::Vector2<float> bbox_corner[3];
+            size_t id[4];
+            msckf_mono::Vector2<float>  tl, tr, bl,br;
+            tl << bboxe_state.cur_detection.xmin, bboxe_state.cur_detection.ymin;
+            tr << bboxe_state.cur_detection.xmax, bboxe_state.cur_detection.ymin;
+            bl << bboxe_state.cur_detection.xmin, bboxe_state.cur_detection.ymax;
+            br << bboxe_state.cur_detection.xmax, bboxe_state.cur_detection.ymax;
+            bbox_corner[0]=tl;
+            bbox_corner[1]=tr;
+            bbox_corner[2]=bl;
+            bbox_corner[3]=br;
+           // cout << "++++++++++++tl" << tl << "\n tr" << tr << "\n bl" << bl << "\n br" << br << endl;
+
+            //for each corner
+            if (new_features_dist_.size()>0){
+
+            for(int i=0; i<4; i++){
+                if (bboxe_state.feature_id[i] ==0){ //if the corner was not found before or it a new detection
+                //init the min distance
+                min_distance[i] = (bbox_corner[i]-new_features_dist_[0]).norm();
+                id[i] = 0;
+                for (int j=0; j<new_features_dist_.size(); j++)
+                {
+                    dist = (bbox_corner[i]-new_features_dist_[j]).norm();
+                    //std::cout << "dist" << dist << "difference of" << bbox_corner[i] << " and " <<new_features_dist_[j] << std::endl;
+                    if (dist< min_distance[i]){
+                        min_distance[i]= dist;
+                        //std::cout << "pixel observed diff" << new_features_dist_[j]-bbox_corner[i] << "with id" << new_ids[j] << std::endl;
+                        id[i] = new_ids[j];
+                    }
+            }
+//
+            //4 values for each box
+            if (min_distance[i]<thresh_pixel){
+            bbox_feature_id.push_back(id[i]);
+            bboxe_state.feature_id[i] = id[i]; // otherwise stay 0
+
+            std::cout <<"In bbTRacker the min_distance<thresh_pixel of the corner: " << i << " is: " << min_distance[i] << "with feature correspondind id: "<< id[i] << std::endl;
+
+}else{
+                 bbox_feature_id.push_back(0); //we consider 0 as a fail in finding a close feature
+        }
+                }}
+
+}
+    }else { //we associate the box
+
+        }
+    }
+
+    return bbox_feature_id;
+}
 
 
 
@@ -187,6 +319,11 @@ void bbTracker_t::init( msckf_mono::Vector3<float >curr_pos_p,
    camera_=camera ;
    R_imu_cam_ =R_imu_cam;
    z_C=1;
+   bbox_State_vect.clear();
+   frame_count=0;
+   thresh = 0.65;
+   thresh_pixel = 30;
+
 
 
 }
@@ -194,14 +331,16 @@ void bbTracker_t::init( msckf_mono::Vector3<float >curr_pos_p,
 void bbTracker_t::update_pose( msckf_mono::imuState<float> imu_state)
 {
 
+//TO DO vect treatment
     curr_imu_state_ = imu_state ;
     frame_count++;
     if (frame_count > max_age){
         bbox_State_vect.clear();
+        frame_count=0;
         //bb_state_.img_bboxes.list.clear();
         std::cout << "drop the last detection" << endl;
     } else {
-        std::cout << "the predicted bbox is " << frame_count <<"frame year old" << endl;
+        std::cout << "the predicted bbox is " << frame_count <<"frame year old and contains"<< bbox_State_vect.size() << "boxes" << endl;
     }
 
 
@@ -214,6 +353,7 @@ bbTracker_t::bbTracker_t(ros::NodeHandle n)
   max_age=10;
   min_hit=0;
   frame_count=0;
+  id_count=0;
 
 
 }
