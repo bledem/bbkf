@@ -84,6 +84,7 @@ template <typename _Scalar>
 template <typename _Scalar>
   struct bbox {
   float xmin, ymin, xmax, ymax, prob;
+
   int num;
  std::string Class;
 };

@@ -100,7 +100,7 @@ void bbTracker_t::boundingboxesCallback(const darknet_ros_msgs::BoundingBoxes &b
 
     }
     if (bboxes_ros.bounding_boxes.size() > 0){
-        ROS_INFO_STREAM("Has " << bboxes_ros.bounding_boxes.size() << "or" << bboxes.list.size()<< " bounding boxes detected and had already " <<bbox_State_vect.size() );
+        ROS_INFO_STREAM("Has " << bboxes_ros.bounding_boxes.size() << " bounding boxes detected and had already " <<bbox_State_vect.size() << "~~~~~~~~~~~~~~~~~~~~~~~~~~" );
 
     }
 
@@ -115,8 +115,7 @@ void bbTracker_t::boundingboxesCallback(const darknet_ros_msgs::BoundingBoxes &b
 std::vector<msckf_mono::bboxState<float>> reserve;
 
       for (int i=0; i<bboxes.list.size(); i++){
-          bool tracked = false;
-
+            bool tracked;
           //check if bbox is already tracked
           for (auto bbox_state : bbox_State_vect){
     if(IOU(bboxes.list[i], bbox_state.cur_detection)){
@@ -124,21 +123,23 @@ std::vector<msckf_mono::bboxState<float>> reserve;
                     bbox_state.cur_detection = bboxes.list[i];
                     bbox_state.age=0;
                     bbox_state.time = bboxes_ros.header.stamp.toSec();
+                    bbox_state.associated = true;
                     tracked=true;
-                    cout << "tracked !! and id is"<< bbox_state.feature_id[0] << " " << bbox_state.feature_id[1] << " " << bbox_state.feature_id[2] <<
+                    cout << "tracked !! "<<bbox_state.bbox_id << "bbox state id and corner id is"<< bbox_state.feature_id[0] << " " << bbox_state.feature_id[1] << " " << bbox_state.feature_id[2] <<
                             " " <<bbox_state.feature_id[3] << endl;
                     break; //quit the comparaison with the previous bbox updated
           } else {
                if (bbox_state.time /= bboxes_ros.header.stamp.toSec()){ //update only once
                bbox_state.age++; //case the bbox was not matching we add up once its age if not done
                bbox_state.prev_detection = bbox_state.cur_detection ;
-
+               bbox_state.associated = false;
                bbox_state.time = bboxes_ros.header.stamp.toSec();
-
+                tracked=false;
                }
            }
            } //we dealt with all the previous saved bbox
-           if(tracked=false || bbox_State_vect.size() == 0){ //
+
+           if(tracked==false || bbox_State_vect.size() == 0){ //
 
            //Box never has been tracked we will augment the bboxState
            msckf_mono::bboxState<float> rayState; //create a bbox state
@@ -148,7 +149,7 @@ std::vector<msckf_mono::bboxState<float>> reserve;
            rayState.age=0;
            rayState.time= bboxes_ros.header.stamp.toSec();
            id_count++;
-           rayState.associated = false;
+           rayState.associated = true;
           // tl_G.p_GR = curr_imu_state_.p_I_G +  R_imu_cam_*(tl_C.p_GR - (-1*camera_.p_C_I)) ;
           // br_G.p_GR = curr_imu_state_.p_I_G +  R_imu_cam_*(br_C.p_GR - (-1*camera_.p_C_I)) ;
 
@@ -158,12 +159,11 @@ std::vector<msckf_mono::bboxState<float>> reserve;
           }
 
 
-
       for (auto bbox_added : reserve){
           bbox_State_vect.push_back(bbox_added);
       }
+      cout << "After adding" <<reserve.size() <<", now we have" <<bbox_State_vect.size() << endl;
       reserve.clear();
-      cout << "now we have" <<bbox_State_vect.size() << endl;
 
 }
 
@@ -248,16 +248,22 @@ corner_detector::IdVector bbTracker_t::find_feature( std::vector<msckf_mono::Vec
    corner_detector::IdVector bbox_feature_id;
 
    //for all the detected boxes
+   int box_nb=0;
+
+   if (bbox_State_vect.size()>0){
+       cout <<"time difference" << std::setprecision(10) <<ros::Time::now().toSec()- bbox_State_vect[0].time << "ms" << endl;
+
+   }
+
     for (auto bboxe_state : bbox_State_vect) {
-        cout <<"time difference" << std::setprecision(10) <<ros::Time::now().toSec()- bboxe_state.time << "ms" << endl;
 
 
-        if (bboxe_state.age == 0 ) { //try to find if the box was
+        if (bboxe_state.age <= 1 ) { //if it is realtively new frame and the pixel would match we try to match with a feature
             bboxe_state.age ++;
 
         //Create a list of the corner of this box
             msckf_mono::Vector2<float> bbox_corner[3];
-            size_t id[4];
+            size_t id[4] = {0,0,0,0};
             msckf_mono::Vector2<float>  tl, tr, bl,br;
             tl << bboxe_state.cur_detection.xmin, bboxe_state.cur_detection.ymin;
             tr << bboxe_state.cur_detection.xmax, bboxe_state.cur_detection.ymin;
@@ -273,10 +279,10 @@ corner_detector::IdVector bbTracker_t::find_feature( std::vector<msckf_mono::Vec
             if (new_features_dist_.size()>0){
 
             for(int i=0; i<4; i++){
-                if (bboxe_state.feature_id[i] ==0){ //if the corner was not found before or it a new detection
+                if ( bboxe_state.feature_id[i] ==0){ //if the corner was not found before or it a new detection we look for appropriate feature
                 //init the min distance
                 min_distance[i] = (bbox_corner[i]-new_features_dist_[0]).norm();
-                id[i] = 0;
+                //in all the detected features we find the closest one for this corner
                 for (int j=0; j<new_features_dist_.size(); j++)
                 {
                     dist = (bbox_corner[i]-new_features_dist_[j]).norm();
@@ -289,24 +295,40 @@ corner_detector::IdVector bbTracker_t::find_feature( std::vector<msckf_mono::Vec
             }
 //
             //4 values for each box
-            if (min_distance[i]<thresh_pixel){
+            if (min_distance[i]<thresh_pixel && id[i]!=0){
             bbox_feature_id.push_back(id[i]);
+            cout << "change from " << bboxe_state.feature_id[i] << " to " <<  id[i] <<endl;
             bboxe_state.feature_id[i] = id[i]; // otherwise stay 0
 
-            std::cout <<"In bbTRacker the min_distance<thresh_pixel of the corner: " << i << " is: " << min_distance[i] << "with feature correspondind id: "<< id[i] << std::endl;
+            std::cout <<std::setprecision(10) <<"In bbTRacker the min_distance<thresh_pixel of the box" << bboxe_state.bbox_id << "placed in the vector nb"<< box_nb<<" for corner: " << i << " is: " << min_distance[i]
+                     << "id is:" << id[i]<< "or"<< bboxe_state.feature_id[i] << std::endl;
+}else if (bboxe_state.feature_id[i] !=0) {
 
-}else{
+
+}else {
                  bbox_feature_id.push_back(0); //we consider 0 as a fail in finding a close feature
         }
-                }}
+                }
+            }
 
 }
-    }else { //we associate the box
+            //end of loop on corners
+    }
+              for(int i=0; i<4; i++){
+                  cout << " end of one loop bbox state check1" << bboxe_state.feature_id[i]<< "for " << bboxe_state.bbox_id << endl;
+              }
 
-        }
+        box_nb++;
     }
 
+    for (auto bboxe_state : bbox_State_vect) {
+          for(int i=0; i<4; i++){
+              cout << " end of all loop bbox state check 2 " << bboxe_state.feature_id[i]<< "for " << bboxe_state.bbox_id << endl;
+          }
+
+}
     return bbox_feature_id;
+
 }
 
 
@@ -321,27 +343,34 @@ void bbTracker_t::init( msckf_mono::Vector3<float >curr_pos_p,
    z_C=1;
    bbox_State_vect.clear();
    frame_count=0;
-   thresh = 0.65;
+   thresh = 0.4;
    thresh_pixel = 30;
 
 
 
 }
 
-void bbTracker_t::update_pose( msckf_mono::imuState<float> imu_state)
+void bbTracker_t::update_pose( msckf_mono::imuState<float> imu_state, int nb_frame)
 {
 
 //TO DO vect treatment
     curr_imu_state_ = imu_state ;
-    frame_count++;
-    if (frame_count > max_age){
+    frame_count+=nb_frame; //frame count is the nb of frame without any detection
+    if (frame_count > max_age_frame){
         bbox_State_vect.clear();
         frame_count=0;
         //bb_state_.img_bboxes.list.clear();
         std::cout << "drop the last detection" << endl;
-    } else {
-        std::cout << "the predicted bbox is " << frame_count <<"frame year old and contains"<< bbox_State_vect.size() << "boxes" << endl;
     }
+
+    for (int i=0; i< bbox_State_vect.size(); i++) {
+        if(bbox_State_vect[i].age >max_age_detection){
+            bbox_State_vect.erase(bbox_State_vect.begin()+i);
+            cout << "-------we erase" << i << "from bbox state" << endl;
+        }
+    }
+        std::cout << "the predicted bbox is " << frame_count <<"frame year old and contains"<< bbox_State_vect.size() << "boxes" << endl;
+
 
 
 }
@@ -350,8 +379,8 @@ void bbTracker_t::update_pose( msckf_mono::imuState<float> imu_state)
 bbTracker_t::bbTracker_t(ros::NodeHandle n)
 { nh=n;
   bb_state_.init_node(n);
-  max_age=10;
-  min_hit=0;
+  max_age_detection=3; //increase every time a detection occur without have been updated  min_hit=0;
+  max_age_frame =10;
   frame_count=0;
   id_count=0;
 

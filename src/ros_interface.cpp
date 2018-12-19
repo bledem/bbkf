@@ -58,6 +58,9 @@ namespace msckf_mono
 
   void RosInterface::imageCallback(const sensor_msgs::ImageConstPtr& msg)
   {
+      cout << "******* Image received *********** " << endl;
+      nb_frame++;
+
     double cur_image_time = msg->header.stamp.toSec();
     cv_bridge::CvImagePtr cv_ptr;
     try
@@ -83,7 +86,6 @@ namespace msckf_mono
 
         setup_msckf();
       }
-
       return;
     }
 
@@ -146,12 +148,20 @@ namespace msckf_mono
 //        std::cout << "new_features_dist" << id << std::endl;
 //    }
 
+    if(cur_ids.size()>0){
+        std::cout << "***   cur_id from " << cur_ids[0] << " to " << cur_ids[cur_ids.size()-1]<< std::endl;
+    }
+    if(new_ids.size()>0){
+        std::cout << "***  new id from " << new_ids[0] << " to " << new_ids[new_ids.size()-1]<< std::endl;
+    }
+
     //list of id the feature the closer with each of the four corner [tl, tr, bl, br]*nb of box, if id=0, no feature is associated
     bbox_feature = bbTracker_.find_feature(new_features_dist, new_ids );
 
     for (int i=0; i<bbox_feature.size(); i++){
         if (bbox_feature[i]>0){
         std::cout << "***  bbox_feature " << bbox_feature[i] << std::endl;
+        std::cout << "***  bbox_feature2 " <<bbTracker_.bbox_State_vect[i/4].feature_id[i%4] << std::endl;
     }}
 
     msckf_.augmentState(state_k_, (float)cur_image_time);
@@ -160,12 +170,7 @@ namespace msckf_mono
 
     //Updates the positions of tracked features (delete, keep, wait,..) at the current timestamp. put them in feature_track_to_residual
     msckf_.update(cur_features, cur_ids);
-    if(cur_ids.size()>0){
-        std::cout << "***   cur_id from " << cur_ids[0] << " to " << cur_ids[cur_ids.size()-1]<< std::endl;
-    }
-    if(new_ids.size()>0){
-        std::cout << "***  new id from " << new_ids[0] << " to " << new_ids[new_ids.size()-1]<< std::endl;
-    }
+
 
 
     //we add to current_features_ the FAST detected feature
@@ -183,19 +188,30 @@ namespace msckf_mono
     std::vector<featureTrack<float>> tracks = msckf_.getTracks();
      std::vector<size_t> tracks_ids = msckf_.getTracksId();
 
-
+//update the position
     for (int i=0; i<bbTracker_.bbox_State_vect.size(); i++) {
-
-            if((bbox_feature[i+(i/4)]!=0)){ //0,4
+        int corner_position=0;
+        for (auto corner_id : bbTracker_.bbox_State_vect[i].feature_id) {
+cout << "check rosinter" <<corner_id << endl;
+            if(corner_id!=0){ //0,4
             auto id_tl =
-              find(tracks_ids.begin(), tracks_ids.end(),(bbox_feature[i+(i/4)]));
+              find(tracks_ids.begin(), tracks_ids.end(),(corner_id));
 
             cout<< "******imu_state.p_I_G" << imu_state.p_I_G << " &tracks[id_tl].p_f_G" <<  tracks[(*id_tl)].p_f_G  << endl;
 
-         //bbTracker_.bbox_State_vect[i].p_f_G_tl =  imu_state.p_I_G - tracks[id_tl].p_f_G;
-         cout <<"****we gave p_f_G_tl to" << i <<"th box on" << bbTracker_.bbox_State_vect.size()<< endl;
+            switch(corner_position) {
+                case 0 :
+                    bbTracker_.bbox_State_vect[i].p_f_G_tl =  imu_state.p_I_G -tracks[(*id_tl)].p_f_G;
+                    cout <<"****we gave p_f_G_tl to" << bbTracker_.bbox_State_vect[i].bbox_id ;
+                case 2 :
+                    bbTracker_.bbox_State_vect[i].p_f_G_br =  imu_state.p_I_G - tracks[(*id_tl)].p_f_G;
+                    cout <<"****we gave p_f_G_br to" << bbTracker_.bbox_State_vect[i].bbox_id ;
             }
 
+            }
+
+        corner_position++;
+        }
 
      }
 
@@ -212,10 +228,12 @@ namespace msckf_mono
     msckf_.pruneEmptyStates();
 
     //delete useless/ old/ meaningless ray
-    bbTracker_.update_pose(msckf_.getImuState());
+    bbTracker_.update_pose(msckf_.getImuState(), nb_frame);
+    nb_frame=0; //reset nb frame since lastupdate
     publish_core(msg->header.stamp);
     publish_extra(msg->header.stamp);
     publish_rviz(msg->header.stamp);
+    cout << "******** End of ROS loop" << endl;
 
   }
 
@@ -278,7 +296,7 @@ int i=0;
 
         auto imu_state = msckf_.getImuState();
           geometry_msgs::Point raytl, raybr;
-          cout << "We publish one bonding box out of" <<bbTracker_.bbox_State_vect.size() << endl;
+          //cout << "We publish one bonding box out of" <<bbTracker_.bbox_State_vect.size() << endl;
 
           raytl.x =bbTracker_.bbox_State_vect[i].r_tl.p_GR[0];
           raytl.y =bbTracker_.bbox_State_vect[i].r_tl.p_GR[1];
@@ -300,8 +318,8 @@ int i=0;
 
 
 
-          cout << "r_tl" <<bbTracker_.bbox_State_vect[i].r_tl.p_GR << endl;
-          cout << "imu state " << imu_state.p_I_G << endl;
+         // cout << "r_tl" <<bbTracker_.bbox_State_vect[i].r_tl.p_GR << endl;
+         // cout << "imu state " << imu_state.p_I_G << endl;
 
 //            int lines_nb = 8;
 

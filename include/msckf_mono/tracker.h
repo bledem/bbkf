@@ -113,7 +113,7 @@ public:
 
 
     cv::Mat last_detected_frame;
-    int max_age, min_hit, frame_count;
+    int max_age_frame, max_age_detection, min_hit, frame_count;
     msckf_mono::imgBboxes<float> last_detected_bbox;
     msckf_mono::imgBboxes<float> new_predicted_bbox;
 
@@ -124,7 +124,7 @@ public:
 
    void init( msckf_mono::Vector3<float >curr_pos_p,
               msckf_mono::Quaternion<float> curr_pos_q, msckf_mono::Camera<float> camera, msckf_mono::Matrix3<float> R_imu_cam);
-   void update_pose(msckf_mono::imuState<float> imu_state);
+   void update_pose(msckf_mono::imuState<float> imu_state,int nb_frame);
    void newBB(msckf_mono::imgBboxes<float> img_bboxes);
    void project_pixel_to_world(  msckf_mono::ray<float>& tl_ray, msckf_mono::ray<float>& br_ray,
                                 msckf_mono::bbox<float> &detected_bbox );

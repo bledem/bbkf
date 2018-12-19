@@ -92,6 +92,7 @@ namespace msckf_mono
 
       std::vector<imgBboxes<float>> img_bboxes_states_;
       imgBboxes<float> cur_bboxes_;
+      int nb_frame;
 
       std::string camera_model_;
       cv::Mat K_;
