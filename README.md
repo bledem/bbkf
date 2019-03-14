@@ -1,5 +1,5 @@
 # msckf_mono
-Monocular MSCKF with ROS Support with YOLO customly trained
+Monocular MSCKF with ROS Support with YOLO customly trained object detection. Goal is simultaneous detection of the robot position (sensor fusion between inertial data and monocolar images) and the YOLO object (monocular camera images processed by neural network).
 
 Ref for MSCKF
 Code: https://github.com/daniilidis-group/msckf_mono
